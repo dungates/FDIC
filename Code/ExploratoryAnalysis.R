@@ -3,6 +3,14 @@ library(purrr)
 library(tidyr)
 library(tidyverse)
 library(lubridate)
+library(sf)
+theme_set(theme_bw())
+library(rnaturalearth)
+library(maps)
+library(rnaturalearthdata)
+library(rgeos)
+# devtools::install_github("UrbanInstitute/urbnmapr")
+library(urbnmapr)
 
 df <- read_csv("/Users/dunk/FDIC/ACdata.csv")
 
@@ -62,13 +70,44 @@ ggsave("/Users/dunk/FDIC/ExploratoryPlot.png", width = 30, height = 30, units = 
 
 # Regression using dummy variable
 # options("na.action" = "na.exclude")
-summary(lm(real_estate_loans ~ pop * cb, data = df))
+summary(lm(real_estate_loans ~ pop * factor(cb), data = df))
 
-ggplot(df, aes(x = pop, y = deposits)) + geom_point() + facet_wrap( ~ state, scales = "free_x")
-
-df %>% group_by()
-
+#Basic plot
+ggplot(df, aes(x = pop, y = deposits, color = cb)) + geom_point() + facet_wrap( ~ state, scales = "free_x")
 
 
+# Testing out plots
+world <- ne_countries(scale = "medium", returnclass = "sf")
+class(world)
+ggplot(data = world) + geom_sf(aes(fill = pop_est)) + labs(x = "Longitude", y = "Latitude") + 
+  ggtitle("World map", subtitle = paste(length(unique(world$name)), "countries")) +
+  scale_fill_gradient_tableau()
 
+# Making a US community banking based map
+states_sf <- get_urbn_map("states", sf = T)
+states_sf %>% ggplot() + geom_sf(fill = "gray", color = "#ffffff")
+
+counties_sf <- get_urbn_map("counties", sf = T)
+counties_sf %>% ggplot() + geom_sf(fill = "gray", color = "#ffffff")
+
+# Have to add 0 to the front of fips_county and state for some reason
+dftest <- df %>% mutate(FIPS_county = ifelse(FIPS_county < 10000, paste0("0", FIPS_county), FIPS_county),
+                        FIPS_state = ifelse(FIPS_state <10, paste0("0",FIPS_state), FIPS_state))
+# Joining dataframes for 2018
+cbcounty_df <- dftest %>% filter(year == 2018) %>% 
+  dplyr::left_join(counties_sf, by = c("FIPS_county" = "county_fips"))
+
+# Mapping whether or not there is a community bank by county, not sure what white space is, assume no data?
+cbcounty_df %>% group_by(FIPS_county) %>% ggplot() + 
+  geom_sf(mapping = aes(geometry = geometry, fill = factor(cb)), color = "#ffffff", size = 0.25) + 
+  labs(fill = "Community Banking Presence")
+
+# Making an employment graph
+cbcounty_df <- cbcounty_df %>% mutate(employment = jobs/pop)
+colfunc <- colorRampPalette(c("black", "white"))
+cbcounty_df %>% group_by(FIPS_county) %>% ggplot() + 
+  geom_sf(mapping = aes(geometry = geometry, fill = 1-employment), color = "#ffffff", size = 0.25) + 
+  labs(fill = "Total Employment in Each County") + 
+  scale_fill_gradientn(labels = scales::percent, colors = colfunc(10)) +
+  coord_sf(datum = NA)
 
